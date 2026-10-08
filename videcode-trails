@@ -1,0 +1,312 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+
+-- ===== НАСТРОЙКИ =====
+local CFG = {
+	mode    = "bloom",
+	count   = 40,    -- частиц в секунду
+	size    = 1.0,   -- множитель размера
+	back    = 0.7,   -- как далеко за спиной
+	life    = 1.0,   -- время жизни (сек), 0.001 - 3
+	side    = 3,     -- разлёт в стороны
+	color   = Color3.fromRGB(255, 170, 255),
+	rainbow = false,
+}
+
+local BASE_SIZE = { bloom = 0.45, star = 0.8 }
+
+local COLORS = {
+	Color3.fromRGB(255, 170, 255), Color3.fromRGB(255, 255, 150),
+	Color3.fromRGB(120, 200, 255), Color3.fromRGB(255, 100, 100),
+	Color3.fromRGB(120, 255, 150), Color3.fromRGB(255, 255, 255),
+}
+
+local player = Players.LocalPlayer
+local container = Instance.new("Folder")
+container.Name = "TrailParticles"
+container.Parent = workspace.Terrain
+
+local particles = {}
+
+local function spawnParticle(hrp)
+	local cf = hrp.CFrame
+	local x = (math.random() - 0.5) * 1.6
+	local y = (math.random() - 0.5) * 5 - 0.3
+	local z = CFG.back + math.random() * 0.2
+	local pos = (cf * CFrame.new(x, y, z)).Position
+
+	local att = Instance.new("Attachment")
+	att.WorldPosition = pos
+	att.Parent = container
+
+	local bb = Instance.new("BillboardGui")
+	bb.Adornee = att
+	bb.LightInfluence = 0
+	bb.Active = false
+	bb.Parent = att
+
+	local obj
+	if CFG.mode == "bloom" then
+		obj = Instance.new("Frame")
+		obj.BackgroundColor3 = CFG.color
+		obj.BorderSizePixel = 0
+		obj.Size = UDim2.fromScale(1, 1)
+		Instance.new("UICorner", obj).CornerRadius = UDim.new(0.5, 0)
+	else
+		obj = Instance.new("TextLabel")
+		obj.BackgroundTransparency = 1
+		obj.Text = "★"
+		obj.TextScaled = true
+		obj.Font = Enum.Font.SourceSansBold
+		obj.TextColor3 = CFG.color
+		obj.Size = UDim2.fromScale(1, 1)
+		obj.Rotation = math.random(0, 360)
+	end
+	obj.Parent = bb
+
+	local s = BASE_SIZE[CFG.mode] * CFG.size
+	bb.Size = UDim2.fromScale(s, s)
+
+	local dir = (x >= 0) and cf.RightVector or -cf.RightVector
+	table.insert(particles, {
+		att = att, bb = bb, obj = obj, mode = CFG.mode,
+		pos = pos, size = s, age = 0, life = CFG.life * (0.8 + math.random() * 0.4),
+		vel = dir * (CFG.side * (0.3 + math.random() * 0.7)) + Vector3.new(0, 0.3, 0),
+		spin = math.random(-120, 120),
+	})
+end
+
+local function updateParticles(dt)
+	for i = #particles, 1, -1 do
+		local p = particles[i]
+		p.age += dt
+		if p.age >= p.life then
+			p.att:Destroy()
+			table.remove(particles, i)
+		else
+			local t = p.age / p.life
+			p.vel = p.vel * math.max(0, 1 - 3 * dt)
+			p.pos += p.vel * dt
+			p.att.WorldPosition = p.pos
+			local s = p.size * (1 - t * 0.7)
+			p.bb.Size = UDim2.fromScale(s, s)
+			if p.mode == "bloom" then
+				p.obj.BackgroundTransparency = t * t
+			else
+				p.obj.TextTransparency = t * t
+				p.obj.Rotation += p.spin * dt
+			end
+		end
+	end
+end
+
+local hrpCur, acc, hue = nil, 0, 0
+
+local function setup(char)
+	hrpCur = char:WaitForChild("HumanoidRootPart")
+end
+
+RunService.Heartbeat:Connect(function(dt)
+	updateParticles(dt)
+	if not hrpCur or not hrpCur.Parent then return end
+
+	if CFG.rainbow then
+		hue = (hue + dt * 0.3) % 1
+		CFG.color = Color3.fromHSV(hue, 0.7, 1)
+	end
+
+	if hrpCur.AssemblyLinearVelocity.Magnitude > 0.5 then
+		acc += CFG.count * dt
+		while acc >= 1 do
+			acc -= 1
+			spawnParticle(hrpCur)
+		end
+	else
+		acc = 0
+	end
+end)
+
+-- ===== GUI =====
+local gui = Instance.new("ScreenGui")
+gui.Name = "TrailGui"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.fromOffset(230, 0)
+frame.AutomaticSize = Enum.AutomaticSize.Y
+frame.Position = UDim2.new(0, 10, 0.5, -170)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+frame.BackgroundTransparency = 0.1
+frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+local pad = Instance.new("UIPadding", frame)
+pad.PaddingTop, pad.PaddingBottom = UDim.new(0, 10), UDim.new(0, 10)
+pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 10), UDim.new(0, 10)
+local list = Instance.new("UIListLayout", frame)
+list.Padding = UDim.new(0, 8)
+list.SortOrder = Enum.SortOrder.LayoutOrder
+
+local order = 0
+local function nextOrder() order += 1 return order end
+
+local function button(text, cb)
+	local b = Instance.new("TextButton")
+	b.LayoutOrder = nextOrder()
+	b.Size = UDim2.new(1, 0, 0, 28)
+	b.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Font = Enum.Font.GothamMedium
+	b.TextSize = 14
+	b.Text = text
+	b.AutoButtonColor = true
+	b.Parent = frame
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+	b.MouseButton1Click:Connect(function() cb(b) end)
+	return b
+end
+
+-- режим
+button("Режим: " .. CFG.mode, function(b)
+	CFG.mode = (CFG.mode == "bloom") and "star" or "bloom"
+	b.Text = "Режим: " .. CFG.mode
+end)
+
+-- палитра
+local colorRow = Instance.new("Frame")
+colorRow.LayoutOrder = nextOrder()
+colorRow.Size = UDim2.new(1, 0, 0, 28)
+colorRow.BackgroundTransparency = 1
+colorRow.Parent = frame
+local cl = Instance.new("UIListLayout", colorRow)
+cl.FillDirection = Enum.FillDirection.Horizontal
+cl.Padding = UDim.new(0, 4)
+cl.SortOrder = Enum.SortOrder.LayoutOrder
+for i, c in ipairs(COLORS) do
+	local cb = Instance.new("TextButton")
+	cb.LayoutOrder = i
+	cb.Size = UDim2.new(1 / #COLORS, -4, 1, 0)
+	cb.BackgroundColor3 = c
+	cb.Text = ""
+	cb.Parent = colorRow
+	Instance.new("UICorner", cb).CornerRadius = UDim.new(0, 6)
+	cb.MouseButton1Click:Connect(function()
+		CFG.rainbow = false
+		CFG.color = c
+	end)
+end
+
+-- радуга
+button("Радуга: выкл", function(b)
+	CFG.rainbow = not CFG.rainbow
+	b.Text = "Радуга: " .. (CFG.rainbow and "вкл" or "выкл")
+end)
+
+-- слайдеры
+local dragging = nil
+
+local function slider(name, key, min, max, step, fmt)
+	local holder = Instance.new("Frame")
+	holder.LayoutOrder = nextOrder()
+	holder.Size = UDim2.new(1, 0, 0, 40)
+	holder.BackgroundTransparency = 1
+	holder.Parent = frame
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 0, 16)
+	label.BackgroundTransparency = 1
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.Font = Enum.Font.Gotham
+	label.TextSize = 13
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Parent = holder
+
+	local hit = Instance.new("Frame") -- увеличенная зона нажатия
+	hit.Position = UDim2.fromOffset(0, 18)
+	hit.Size = UDim2.new(1, 0, 0, 20)
+	hit.BackgroundTransparency = 1
+	hit.Parent = holder
+
+	local track = Instance.new("Frame")
+	track.AnchorPoint = Vector2.new(0, 0.5)
+	track.Position = UDim2.fromScale(0, 0.5)
+	track.Size = UDim2.new(1, 0, 0, 6)
+	track.BackgroundColor3 = Color3.fromRGB(70, 70, 80)
+	track.BorderSizePixel = 0
+	track.Parent = hit
+	Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+
+	local fill = Instance.new("Frame")
+	fill.BackgroundColor3 = Color3.fromRGB(170, 130, 255)
+	fill.BorderSizePixel = 0
+	fill.Size = UDim2.fromScale(0, 1)
+	fill.Parent = track
+	Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+	local knob = Instance.new("Frame")
+	knob.AnchorPoint = Vector2.new(0.5, 0.5)
+	knob.Size = UDim2.fromOffset(14, 14)
+	knob.BackgroundColor3 = Color3.new(1, 1, 1)
+	knob.BorderSizePixel = 0
+	knob.Parent = track
+	Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+	local function refresh()
+		local a = (CFG[key] - min) / (max - min)
+		fill.Size = UDim2.fromScale(a, 1)
+		knob.Position = UDim2.new(a, 0, 0.5, 0)
+		label.Text = name .. ": " .. fmt(CFG[key])
+	end
+
+	local function setFromX(x)
+		local a = math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+		local v = min + (max - min) * a
+		v = math.floor(v / step + 0.5) * step
+		CFG[key] = math.clamp(v, min, max)
+		refresh()
+	end
+
+	hit.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = { set = setFromX }
+			setFromX(input.Position.X)
+		end
+	end)
+
+	refresh()
+end
+
+UIS.InputChanged:Connect(function(input)
+	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch) then
+		dragging.set(input.Position.X)
+	end
+end)
+
+UIS.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = nil
+	end
+end)
+
+local function fmtTime(v)
+	if v < 1 then return string.format("%d мс", math.floor(v * 1000 + 0.5)) end
+	return string.format("%.2f с", v)
+end
+
+slider("Размер",  "size",  0.25, 5,   0.05,  function(v) return string.format("%.2f", v) end)
+slider("Кол-во",  "count", 5,    200, 1,     function(v) return string.format("%d", v) end)
+slider("Назад",   "back",  0.2,  3,   0.05,  function(v) return string.format("%.2f", v) end)
+slider("Разлёт",  "side",  0,    10,  0.1,   function(v) return string.format("%.1f", v) end)
+slider("Время",   "life",  0.001, 3,  0.001, fmtTime)
+
+UIS.InputBegan:Connect(function(input, gp)
+	if gp then return end
+	if input.KeyCode == Enum.KeyCode.G then gui.Enabled = not gui.Enabled end
+end)
+
+if player.Character then setup(player.Character) end
+player.CharacterAdded:Connect(setup)
